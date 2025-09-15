@@ -1,0 +1,251 @@
+##all Figures contains bar plot
+library(ggplot2)
+library(reshape2)
+
+data_summary <- function(data, varname, groupnames){
+  require(plyr)
+  summary_func <- function(x, col){
+    c(mean = mean(x[[col]], na.rm=TRUE),
+      sd = sd(x[[col]], na.rm=TRUE))
+  }
+  data_sum<-ddply(data, groupnames, .fun=summary_func,
+                  varname)
+  data_sum <- rename(data_sum, c("mean" = varname))
+  return(data_sum)
+}
+setwd("F:\\sfy\\宏基因组分析\\样本数data\\表型")
+df=read.table("bodyweight_Oat.txt",header = 1,sep="\t")
+ndf=melt(df,id=c("Breed"))
+df2 <- data_summary(ndf, varname="value", 
+                    groupnames=c("variable", "Breed"))
+df2$Breed=factor(df2$Breed,levels = c("yak0","cattle0","yak1","cattle1","yak2","cattle2","yak3","cattle3"))
+p<- ggplot(df2,aes(x=variable, y=value, fill=Breed) ) + 
+  geom_bar(aes(x=variable, y=value, fill=Breed),stat="identity", color="black", width = 0.5,
+           position=position_dodge()) +
+  geom_errorbar(aes(ymin=value-sd, ymax=value+sd), width=.2,
+                position=position_dodge(.5))
+p + theme_bw() + 
+  scale_y_continuous(sec.axis = sec_axis(~., name = "Energy"),limits=c(-1600, 600), breaks = seq(-2000,800,400))+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))
+print(p)
+
+
+##Figure 4b;Figure 6b; Figure 7o; Figure S6a-S6b
+library(vegan)	
+library(ggplot2)	
+library(ape)	
+library(ggpubr)
+library("ggsci")
+library("scales")
+otu <- read.table('NMDS.txt',  sep = '\t', row.names = 1, header=T, check.names = FALSE)
+#otu <- read.table('clipboard', row.names = 1, sep = '\t',header=T, check.names = FALSE)
+otu <- data.frame(otu)
+otu[is.na(otu)]=0
+
+distOTU=vegdist(otu,method = "bray")
+nmds1 <- metaMDS(otu, distance = 'bray', k = 4)
+nmds1.stress <- nmds1$stress
+nmds1.point <- data.frame(nmds1$point)
+nmds1.species <- data.frame(nmds1$species)
+
+nmds_plot <- nmds1
+nmds_plot$species <- {nmds_plot$species}[1:10, ]
+plot(nmds_plot, type = 't', main = paste('Stress =', round(nmds1$stress, 4)))
+
+group <- read.delim(classify.txt', sep = '\t', stringsAsFactors = FALSE)
+
+sample_site <- nmds1.point[1:2]
+sample_site$names <- rownames(sample_site)
+names(sample_site)[1:2] <- c('NMDS1', 'NMDS2')
+
+sample_site <- merge(sample_site, group, by = 'names', all.x = TRUE)
+
+nmds_plot <- ggplot(sample_site, aes(NMDS1, NMDS2, group = group)) +
+  geom_point(aes(color = group), size = 2, alpha = 0.8) + 
+  scale_shape_manual(values = c(30, 30)) +
+  scale_color_manual(values = c('#e41a1c','#1d91c0')) +
+  theme(panel.grid = element_blank(), panel.background = element_rect(color = 'black', fill = 'transparent')) + 
+  theme(legend.key = element_rect(fill = 'transparent'), legend.title = element_blank()) + 
+  labs(x = 'NMDS1', y = 'NMDS2', title = paste('Stress =', round(nmds1$stress, 4))) +
+  theme(plot.title = element_text(hjust = 0.5))+
+  stat_ellipse(level = 0.95)
+
+
+##Figure 4c
+library(tidyverse)
+library(ggraph)
+library(ccgraph)
+library(tidygraph)
+library(dplyr)
+
+otu <- read.csv("level2_updated.csv", sep = ",", header = TRUE)
+
+otu$p.aa <- -log10(otu$p.adjust)
+pdata <- data.frame(p.adjust = otu$p.adjust)
+
+otur <- otu %>%
+  arrange(p.aa)
+
+
+index <- c("level2", "Description")
+nodes <- gather_graph_node(otur, index = index, value = "p.aa", root = "root")
+edges <- gather_graph_edge(otur, index = index, root = "root")
+
+nodes <- nodes %>%
+  arrange(node.size)
+
+otur_unique <- otur %>%
+  group_by(p.aa) %>%
+  sample_n(1) %>%  
+  ungroup()
+
+nodes <- nodes %>%
+  left_join(otur_unique %>% select(p.aa, type), by = c("node.size" = "p.aa"))
+
+nodes <- nodes %>%
+  mutate(type = case_when(
+    node.short_name == "Biosynthesis of cofactors" ~ "HP",
+    node.short_name == "Glycolysis / Gluconeogenesis" ~ "HP",
+    node.short_name == "Pyruvate metabolism" ~ "LP",
+    TRUE ~ type  
+  ))
+
+graph <- tbl_graph(nodes = nodes, edges = edges)
+
+gcdd <- ggraph(graph,layout = 'dendrogram', circular = TRUE) + 
+  geom_edge_diagonal(aes(color=node1.node.branch),alpha=1/3) + 
+  geom_node_point(aes(size=node.size,color=type),alpha=1/3) + 
+  coord_fixed() +
+  theme(legend.position = "none")
+
+gcdd
+
+p5<- gcdd + geom_node_text(aes(x = 1.04 * x,y = 1.04 * y,
+                            label= node.short_name,
+                            angle= -((-node_angle(x, y) + 90) %% 180) + 90,
+                            filter= leaf,
+                            color= type),
+                        size= 1.5, hjust = 'outward')
+p5
+
+p6<- p5 + geom_node_text(
+  aes(label=node.short_name,color = node.branch),
+  fontface= "bold",
+  size= 1.5,
+  family= "sans",
+  data= filter(p5$data, node.level == "level2"))
+p6
+
+p7 <- p6 + scale_size(range = c(2,30))
+p7
+
+p8 <- p7 + coord_cartesian(xlim=c(-1.8,1.8),ylim = c(-1.8,1.8))
+p8
+
+mycolor <- rep(c("#0077c1","#ff1620","#0077c1"), length.out = 13)
+
+p9 <- p8 + scale_color_manual(values = rev(mycolor), guide = "none")
+p9
+
+
+
+
+##Figure 2e; Figure 3o-q; Figure 4a; Figure 5n-p; Figure 6a; Figure 7k-n; Figure S6c
+library(ggplot2)
+library(ggstance)
+library(tidyr)
+library(dplyr)
+library(readxl)
+setwd("D:/RBook/sfy")
+Abu<-read.csv("Boxplot_test.csv",header = T)
+Group<-read.table("Boxplot_test_design.txt",header = T)
+Abu_long<-pivot_longer(Abu,cols =-ID,names_to = "SampleID" )
+Abu_long_Group<-left_join(Abu_long,Group,by="SampleID")
+
+Abu_long_Group<-Abu_long_Group[Abu_long_Group$value!="0",]#将丰度为0的去掉，视数据情况而定
+summary(Abu_long_Group)
+dev.new()
+ggplot(Abu_long_Group, aes(value,ID))+#ID是y轴的点，value是每个组别用于箱线图绘制的值
+  geom_boxploth(aes(fill=factor(Group)),#Group是y轴上每个点中的分组
+                size=0.5,outlier.size = 1,
+                position =position_dodgev(0.8)) + #调整Group箱线之间的距离，如果存在重叠的话可能需要调整 
+  guides(fill=guide_legend(title="Group"))+
+  theme_minimal()+
+  theme(axis.title=element_text(size=13,face="plain",color="black"),
+        axis.text = element_text(size=11,face="plain",color="black"),
+        panel.background=element_rect(colour="black",fill=NA),
+        panel.grid.minor=element_blank(),
+        legend.position="right",
+        legend.background=element_rect(colour=NA,fill=NA),
+        axis.ticks=element_line(colour="black"))
+
+
+##Figure S2a; Figure S4k
+setwd("D:/RBook/")
+library(dplyr)
+urea<-read.csv("pro_in_urea.csv",header = F)
+
+abu<-read.table("abundance.txt",header = T,row.names = 1)
+
+filtered_abu <- abu[rownames(abu) %in% urea$V1, ]
+write.csv(filtered_abu,"abu.csv")
+
+HP<-filtered_abu[,1:8]
+MP<-filtered_abu[,9:16]
+LP<-filtered_abu[,17:24]
+LPY<-filtered_abu[,24:32]
+
+
+
+
+##Figure S3
+library(ComplexHeatmap)
+library(circlize)
+setwd("D:/RBook/3")
+ alldata<-read.csv(file = "acid lplpy2.csv",row.names = 1,stringsAsFactors = FALSE)
+MEI<-alldata[,1:19]
+SP= alldata[,20:21]
+group<-alldata[,22]
+col_fun= c("0"="white","1"="#73c2cd","2"="#57a8d4","3"="#4f8ed6","4"="#2a60d9")
+H2<-Heatmap(as.matrix(MEI),show_row_names = F,col = col_fun,border = "black",column_names_side = "bottom",name="Gene counts",
+            height = unit(16, "cm"), width = unit(15, "cm"),cluster_rows = FALSE,cluster_columns = F,row_split =group ,
+            rect_gp = gpar(col = "#d6e2e4", lwd = 1),column_names_rot =45)
+H3<-Heatmap(SP[,1],show_row_names = F,column_names_side = "top",name="Phylum",rect_gp = gpar(col = "black", lwd = 1),
+            width = unit(0.8, "cm"),column_names_rot =45)
+H4<-Heatmap(SP[,2],show_row_names = F,column_names_side = "top",name="Genus",rect_gp = gpar(col = "black", lwd = 1),
+            width = unit(0.8, "cm"),column_names_rot =45)
+dev.new()
+H2+H3+H4
+
+
+alldata<-read.csv(file = "acid hplp.csv",row.names = 1,stringsAsFactors = FALSE)
+MEI<-alldata[,1:19]
+SP= alldata[,20:21]
+group<-alldata[,22]
+col_fun= c("0"="white","1"="#73c2cd","2"="#57a8d4","3"="#4f8ed6","4"="#2a60d9")
+H2<-Heatmap(as.matrix(MEI),show_row_names = F,col = col_fun,border = "black",column_names_side = "bottom",name="Gene counts",
+            height = unit(20, "cm"), width = unit(15, "cm"),cluster_rows = FALSE,cluster_columns = F,row_split =group ,
+            rect_gp = gpar(col = "#d6e2e4", lwd = 1),column_names_rot =45)
+H3<-Heatmap(SP[,1],show_row_names = F,column_names_side = "top",name="Phylum",rect_gp = gpar(col = "black", lwd = 1),
+            width = unit(0.8, "cm"),column_names_rot =45)
+H4<-Heatmap(SP[,2],show_row_names = F,column_names_side = "top",name="Genus",rect_gp = gpar(col = "black", lwd = 1),
+            width = unit(0.8, "cm"),column_names_rot =45)
+dev.new()
+H2+H3+H4
+
+alldata<-read.csv(file = "acid mplp.csv",row.names = 1,stringsAsFactors = FALSE)
+MEI<-alldata[,1:19]
+SP= alldata[,20:21]
+group<-alldata[,22]
+col_fun= c("0"="white","1"="#73c2cd","2"="#57a8d4","3"="#4f8ed6","4"="#2a60d9")
+H2<-Heatmap(as.matrix(MEI),show_row_names = F,col = col_fun,border = "black",column_names_side = "bottom",name="Gene counts",
+            height = unit(22, "cm"), width = unit(15, "cm"),cluster_rows = FALSE,cluster_columns = F,row_split =group ,
+            rect_gp = gpar(col = "#d6e2e4", lwd = 1),column_names_rot =45)
+H3<-Heatmap(SP[,1],show_row_names = F,column_names_side = "top",name="Phylum",rect_gp = gpar(col = "black", lwd = 1),
+            width = unit(0.8, "cm"),column_names_rot =45)
+H4<-Heatmap(SP[,2],show_row_names = F,column_names_side = "top",name="Genus",rect_gp = gpar(col = "black", lwd = 1),
+            width = unit(0.8, "cm"),column_names_rot =45)
+dev.new()
+H2+H3+H4
